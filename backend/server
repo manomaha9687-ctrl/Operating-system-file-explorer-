@@ -1,0 +1,212 @@
+'use strict';
+const express = require('express');
+const cors = require('cors');
+const fs = require('fs/promises');
+const fssync = require('fs');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+
+const PORT = process.env.PORT || 3000;
+// Sandbox: all operations must stay inside ROOT (NFR-SEC-01/02, path traversal protection)
+const ROOT = path.resolve(process.env.EXPLORER_ROOT || os.homedir());
+const TRASH_DIR = path.join(ROOT, '.explorer-trash');
+const TRASH_INDEX = path.join(TRASH_DIR, 'index.json');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+// Serve the frontend from ../frontend as well
+app.use(express.static(path.join(__dirname, '..', 'frontend')));
+
+// ---------- helpers ----------
+class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
+
+function safe(p) {
+  if (!p || typeof p !== 'string' || p.includes('\0')) throw new HttpError(400, 'Invalid path.');
+  const full = path.resolve(p);
+  const rel = path.relative(ROOT, full);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new HttpError(403, 'Access denied: path is outside the allowed root.');
+  return full;
+}
+function validName(name) {
+  if (!name || /[\\/:*?"<>|\0]/.test(name) || name === '.' || name === '..' || name.length > 255)
+    throw new HttpError(400, 'Invalid name. Avoid / \\ : * ? " < > | and keep it under 255 characters.');
+}
+const exists = p => fs.access(p).then(() => true, () => false);
+
+async function describe(full) {
+  const st = await fs.lstat(full);
+  return { name: path.basename(full), path: full, isDir: st.isDirectory(), size: st.isDirectory() ? null : st.size,
+    ext: st.isDirectory() ? '' : path.extname(full).slice(1).toLowerCase(), modified: st.mtimeMs, created: st.birthtimeMs, mode: (st.mode & 0o777).toString(8) };
+}
+async function uniqueName(dir, name) { // "keep both" conflict resolution
+  if (!(await exists(path.join(dir, name)))) return name;
+  const ext = path.extname(name), base = path.basename(name, ext);
+  for (let i = 2; ; i++) { const n = `${base} (${i})${ext}`; if (!(await exists(path.join(dir, n)))) return n; }
+}
+async function resolveTarget(src, destDir, onConflict) {
+  let name = path.basename(src), target = path.join(destDir, name);
+  if (await exists(target)) {
+    if (onConflict === 'skip') return null;
+    if (onConflict === 'replace') await fs.rm(target, { recursive: true, force: true });
+    else { name = await uniqueName(destDir, name); target = path.join(destDir, name); }
+  }
+  return target;
+}
+async function dirSize(dir) {
+  let size = 0, count = 0;
+  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name); count++;
+    if (e.isDirectory()) { const r = await dirSize(p); size += r.size; count += r.count; } else size += (await fs.lstat(p)).size;
+  }
+  return { size, count };
+}
+async function readIndex() { try { return JSON.parse(await fs.readFile(TRASH_INDEX, 'utf8')); } catch { return []; } }
+async function writeIndex(i) { await fs.mkdir(TRASH_DIR, { recursive: true }); await fs.writeFile(TRASH_INDEX, JSON.stringify(i, null, 2)); }
+// Move works across devices: rename, falling back to copy+delete
+async function moveEntry(a, b) {
+  try { await fs.rename(a, b); } catch (e) { if (e.code !== 'EXDEV') throw e; await fs.cp(a, b, { recursive: true }); await fs.rm(a, { recursive: true, force: true }); }
+}
+const wrap = fn => (req, res, next) => fn(req, res).catch(next);
+
+// ---------- routes ----------
+app.get('/api/places', wrap(async (req, res) => {
+  const favorites = ['Desktop', 'Documents', 'Downloads', 'Pictures'].map(n => ({ name: n, path: path.join(ROOT, n) })).filter(f => fssync.existsSync(f.path));
+  let drives = [{ name: path.basename(ROOT) || ROOT, path: ROOT, total: 0, free: 0 }];
+  try { const s = await fs.statfs(ROOT); drives[0].total = s.blocks * s.bsize; drives[0].free = s.bavail * s.bsize; } catch {}
+  res.json({ home: ROOT, favorites, drives });
+}));
+
+app.get('/api/list', wrap(async (req, res) => {
+  const dir = safe(req.query.path), showHidden = req.query.hidden === 'true';
+  const st = await fs.stat(dir);
+  if (!st.isDirectory()) throw new HttpError(400, 'Not a folder.');
+  const names = await fs.readdir(dir);
+  const items = [];
+  for (const n of names) {
+    if (!showHidden && n.startsWith('.')) continue;
+    try { items.push(await describe(path.join(dir, n))); } catch { /* unreadable entry: skip */ }
+  }
+  res.json({ path: dir, items });
+}));
+
+app.get('/api/properties', wrap(async (req, res) => {
+  const p = safe(req.query.path), info = await describe(p);
+  info.location = path.dirname(p);
+  if (info.isDir) { const r = await dirSize(p); info.size = r.size; info.count = r.count; }
+  res.json(info);
+}));
+
+app.get('/api/preview', wrap(async (req, res) => {
+  const p = safe(req.query.path), fh = await fs.open(p, 'r'), buf = Buffer.alloc(4096);
+  const { bytesRead } = await fh.read(buf, 0, 4096, 0); await fh.close();
+  res.json({ text: buf.slice(0, bytesRead).toString('utf8') });
+}));
+
+app.get('/api/download', wrap(async (req, res) => {
+  const p = safe(req.query.path);
+  req.query.inline ? res.sendFile(p) : res.download(p);
+}));
+
+app.post('/api/create', wrap(async (req, res) => {
+  const { path: p, type } = req.body, full = safe(p); validName(path.basename(full));
+  if (await exists(full)) throw new HttpError(409, 'An item with that name already exists.');
+  type === 'dir' ? await fs.mkdir(full) : await fs.writeFile(full, '', { flag: 'wx' });
+  res.json({ ok: true });
+}));
+
+app.post('/api/rename', wrap(async (req, res) => {
+  const src = safe(req.body.path); validName(req.body.newName);
+  const dst = path.join(path.dirname(src), req.body.newName);
+  if (await exists(dst)) throw new HttpError(409, 'An item with that name already exists.');
+  await fs.rename(src, dst); res.json({ ok: true, path: dst });
+}));
+
+app.post('/api/copy', wrap(async (req, res) => {
+  const { sources, destination, onConflict } = req.body, dest = safe(destination); let done = 0;
+  for (const s of sources) {
+    const src = safe(s), target = await resolveTarget(src, dest, onConflict);
+    if (!target) continue;
+    if (target.startsWith(src + path.sep)) throw new HttpError(400, 'Cannot copy a folder into itself.');
+    await fs.cp(src, target, { recursive: true, errorOnExist: true }); done++;
+  }
+  res.json({ ok: true, done });
+}));
+
+app.post('/api/move', wrap(async (req, res) => {
+  const { sources, destination, onConflict } = req.body, dest = safe(destination); let done = 0;
+  for (const s of sources) {
+    const src = safe(s);
+    if (path.dirname(src) === dest) continue;
+    if (dest === src || dest.startsWith(src + path.sep)) throw new HttpError(400, 'Cannot move a folder into itself.');
+    const target = await resolveTarget(src, dest, onConflict); if (!target) continue;
+    await moveEntry(src, target); done++;
+  }
+  res.json({ ok: true, done });
+}));
+
+app.post('/api/delete', wrap(async (req, res) => {
+  const { paths, permanent } = req.body; const index = await readIndex();
+  await fs.mkdir(TRASH_DIR, { recursive: true });
+  for (const p of paths) {
+    const full = safe(p); if (full.startsWith(TRASH_DIR)) continue;
+    const info = await describe(full);
+    if (permanent) { await fs.rm(full, { recursive: true, force: true }); continue; }
+    const id = crypto.randomUUID();
+    await moveEntry(full, path.join(TRASH_DIR, id));
+    index.push({ id, name: info.name, originalPath: full, deletedDate: Date.now(), size: info.size || 0, isDir: info.isDir });
+  }
+  await writeIndex(index); res.json({ ok: true });
+}));
+
+app.get('/api/trash', wrap(async (req, res) => res.json({ items: await readIndex() })));
+
+app.post('/api/trash/restore', wrap(async (req, res) => {
+  const index = await readIndex(), rec = index.find(r => r.id === req.body.id);
+  if (!rec) throw new HttpError(404, 'Item not found in Trash.');
+  const dir = path.dirname(rec.originalPath);
+  await fs.mkdir(dir, { recursive: true }); // recreate original folder if it was removed (UC-02)
+  const name = await uniqueName(dir, rec.name);
+  await moveEntry(path.join(TRASH_DIR, rec.id), path.join(dir, name));
+  await writeIndex(index.filter(r => r.id !== rec.id)); res.json({ ok: true, path: path.join(dir, name) });
+}));
+
+app.delete('/api/trash/:id', wrap(async (req, res) => {
+  const index = await readIndex(), rec = index.find(r => r.id === req.params.id);
+  if (!rec) throw new HttpError(404, 'Item not found in Trash.');
+  await fs.rm(path.join(TRASH_DIR, rec.id), { recursive: true, force: true });
+  await writeIndex(index.filter(r => r.id !== rec.id)); res.json({ ok: true });
+}));
+
+app.get('/api/search', wrap(async (req, res) => {
+  const base = safe(req.query.path), text = String(req.query.q || '').toLowerCase(), showHidden = req.query.hidden === 'true';
+  if (!text) return res.json({ items: [] });
+  const wild = text.includes('*') || text.includes('?');
+  const re = wild ? new RegExp('^' + text.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i') : null;
+  const items = [], LIMIT = 500;
+  async function walk(dir) {
+    if (items.length >= LIMIT) return;
+    let entries; try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (!showHidden && e.name.startsWith('.')) continue;
+      const full = path.join(dir, e.name);
+      if (full === TRASH_DIR) continue;
+      if (re ? re.test(e.name) : e.name.toLowerCase().includes(text)) { try { items.push(await describe(full)); } catch {} }
+      if (e.isDirectory() && !e.isSymbolicLink()) await walk(full);
+      if (items.length >= LIMIT) return;
+    }
+  }
+  await walk(base); res.json({ items });
+}));
+
+// ---------- errors (cause + suggested action, NFR-USE-03) ----------
+app.use((err, req, res, next) => {
+  const map = { ENOENT: [404, 'Item not found. It may have been moved or deleted.'], EACCES: [403, 'Access denied. Check permissions or run with elevated rights.'],
+    EPERM: [403, 'Operation not permitted.'], ENOSPC: [507, 'Disk full. Free up space and try again.'], EEXIST: [409, 'An item with that name already exists.'],
+    EBUSY: [423, 'The item is in use. Close other programs and retry.'], ENAMETOOLONG: [400, 'Path too long. Use a shorter name.'] };
+  const [status, msg] = err.status ? [err.status, err.message] : (map[err.code] || [500, 'Unexpected error: ' + err.message]);
+  res.status(status).json({ error: msg });
+});
+
+app.listen(PORT, () => console.log(`File Explorer running at http://localhost:${PORT} (root: ${ROOT})`));
