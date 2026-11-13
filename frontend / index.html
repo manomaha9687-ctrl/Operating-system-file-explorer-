@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>File Explorer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="toolbar">
+  <button id="back" title="Back (Alt+Left)" aria-label="Back">&#8592;</button>
+  <button id="forward" title="Forward (Alt+Right)" aria-label="Forward">&#8594;</button>
+  <button id="up" title="Up one level" aria-label="Up">&#8593;</button>
+  <div id="address" class="address" role="navigation" aria-label="Path"></div>
+  <input id="addressInput" class="address hidden" aria-label="Edit path">
+  <input id="search" type="search" placeholder="Search this folder" aria-label="Search">
+</header>
+<div class="actions">
+  <button id="newFolder">New folder</button>
+  <button id="newFile">New file</button>
+  <button id="cut">Cut</button>
+  <button id="copy">Copy</button>
+  <button id="paste">Paste</button>
+  <button id="rename">Rename</button>
+  <button id="delete">Delete</button>
+  <span class="spacer"></span>
+  <select id="sort" aria-label="Sort by">
+    <option value="name">Name</option><option value="size">Size</option>
+    <option value="type">Type</option><option value="modified">Date modified</option>
+  </select>
+  <button id="sortDir" title="Toggle sort direction">A–Z</button>
+  <select id="view" aria-label="View">
+    <option value="details">Details</option><option value="list">List</option><option value="icons">Icons</option>
+  </select>
+  <label><input type="checkbox" id="hidden"> Hidden files</label>
+  <button id="theme">Theme</button>
+</div>
+<main class="layout">
+  <nav id="sidebar" aria-label="Navigation pane">
+    <h2>Favorites</h2><ul id="favorites"></ul>
+    <h2>Drives</h2><ul id="drives"></ul>
+    <h2>Places</h2><ul><li><a href="#" id="trashLink">Trash</a></li></ul>
+  </nav>
+  <section id="content" tabindex="0" aria-label="Folder contents"></section>
+  <aside id="preview" aria-label="Preview"></aside>
+</main>
+<footer id="status">0 items</footer>
+<ul id="menu" class="menu hidden" role="menu"></ul>
+<dialog id="dialog"></dialog>
+<div id="toast" role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>
