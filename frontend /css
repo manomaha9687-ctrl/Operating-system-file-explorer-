@@ -1,0 +1,50 @@
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#1d2430;--muted:#6b7585;--line:#dde1e8;--accent:#1f6f5c;--sel:#d6ece5;--danger:#b3261e}
+:root[data-theme="dark"]{--bg:#161a20;--panel:#1e242c;--ink:#e6e9ee;--muted:#98a1b0;--line:#2e3641;--accent:#4fbf9f;--sel:#26453c;--danger:#ff8a80}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161a20;--panel:#1e242c;--ink:#e6e9ee;--muted:#98a1b0;--line:#2e3641;--accent:#4fbf9f;--sel:#26453c;--danger:#ff8a80}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:14px/1.4 "Segoe UI",system-ui,sans-serif}
+button,select,input{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
+button{cursor:pointer}button:hover{border-color:var(--accent)}
+button:focus-visible,a:focus-visible,#content:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.hidden{display:none!important}
+.toolbar,.actions{display:flex;gap:6px;padding:8px 10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line);background:var(--panel)}
+.spacer{flex:1}
+.address{flex:1;min-width:160px;display:flex;gap:2px;overflow-x:auto;border:1px solid var(--line);border-radius:6px;padding:3px 6px;background:var(--bg);cursor:text}
+.address button{border:0;background:none;padding:2px 6px}
+.layout{flex:1;display:flex;min-height:0}
+#sidebar{width:200px;padding:10px;border-right:1px solid var(--line);overflow:auto;background:var(--panel)}
+#sidebar h2{font-size:12px;color:var(--muted);margin:12px 0 4px;font-weight:600}
+#sidebar ul{list-style:none;margin:0;padding:0}
+#sidebar a{display:block;padding:4px 6px;border-radius:5px;color:inherit;text-decoration:none}
+#sidebar a:hover{background:var(--sel)}
+.drive small{display:block;color:var(--muted)}
+.bar{height:4px;background:var(--line);border-radius:2px;margin-top:3px}.bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+#content{flex:1;overflow:auto;padding:6px;outline-offset:-2px}
+#preview{width:240px;padding:12px;border-left:1px solid var(--line);background:var(--panel);overflow:auto}
+#preview:empty{display:none}
+#preview img{max-width:100%;border-radius:6px}
+#preview pre{white-space:pre-wrap;word-break:break-word;font-size:12px}
+.row{display:grid;grid-template-columns:minmax(160px,3fr) 1fr 1fr 1.6fr;gap:8px;padding:5px 8px;border-radius:5px;cursor:default;user-select:none;align-items:center}
+.row.head{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--bg)}
+.row:hover{background:color-mix(in srgb,var(--sel) 50%,transparent)}
+.row.sel{background:var(--sel)}
+.row .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .m{color:var(--muted)}
+.list .row{display:inline-flex;width:240px}.list .row .m,.list .head{display:none}
+.icons{display:flex;flex-wrap:wrap;gap:6px}
+.icons .row{display:flex;flex-direction:column;width:100px;text-align:center;grid-template-columns:none}
+.icons .row .m{display:none}.icons .ic{font-size:34px}.icons .head{display:none}
+.empty{color:var(--muted);padding:40px;text-align:center}
+#status{padding:5px 12px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted)}
+.menu{position:fixed;z-index:10;margin:0;padding:4px;list-style:none;min-width:170px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+.menu li{padding:6px 12px;border-radius:5px;cursor:pointer}.menu li:hover{background:var(--sel)}
+.menu li.danger{color:var(--danger)}
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);max-width:420px;width:90%}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+dialog .btns{display:flex;gap:6px;justify-content:flex-end;margin-top:14px}
+dialog table td{padding:2px 8px 2px 0;vertical-align:top}
+#toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:1}
+@media (max-width:760px){#sidebar,#preview{display:none}.row{grid-template-columns:1fr 80px}.row .m:nth-child(n+3){display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
