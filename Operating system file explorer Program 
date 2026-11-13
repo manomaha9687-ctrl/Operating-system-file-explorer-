@@ -1,0 +1,305 @@
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.awt.*;
+import java.io.File;
+import java.io.IOException;
+
+public class FileExplorer extends JFrame {
+
+    JTextField pathField;
+    JTextField searchField;
+    JTable table;
+    DefaultTableModel model;
+    File currentDirectory;
+
+    public FileExplorer() {
+
+        setTitle("Operating System File Explorer");
+        setSize(900, 600);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+
+        // Top Panel
+        JPanel topPanel = new JPanel(new BorderLayout());
+
+        pathField = new JTextField();
+        JButton goButton = new JButton("Go");
+
+        topPanel.add(pathField, BorderLayout.CENTER);
+        topPanel.add(goButton, BorderLayout.EAST);
+
+        add(topPanel, BorderLayout.NORTH);
+
+        // Table
+        model = new DefaultTableModel(
+            new String[]{"Name", "Type", "Size"}, 0
+        );
+
+        table = new JTable(model);
+        JScrollPane scrollPane = new JScrollPane(table);
+
+        add(scrollPane, BorderLayout.CENTER);
+
+        // Bottom Panel
+        JPanel bottomPanel = new JPanel();
+
+        JButton backButton = new JButton("Back");
+        JButton createFolder = new JButton("New Folder");
+        JButton createFile = new JButton("New File");
+        JButton deleteButton = new JButton("Delete");
+        JButton renameButton = new JButton("Rename");
+        JButton propertiesButton = new JButton("Properties");
+
+        searchField = new JTextField(12);
+        JButton searchButton = new JButton("Search");
+
+        bottomPanel.add(backButton);
+        bottomPanel.add(createFolder);
+        bottomPanel.add(createFile);
+        bottomPanel.add(deleteButton);
+        bottomPanel.add(renameButton);
+        bottomPanel.add(propertiesButton);
+        bottomPanel.add(searchField);
+        bottomPanel.add(searchButton);
+
+        add(bottomPanel, BorderLayout.SOUTH);
+
+        // Open selected directory
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    openSelected();
+                }
+            }
+        });
+
+        goButton.addActionListener(e -> {
+            File folder = new File(pathField.getText());
+            if (folder.isDirectory()) {
+                showFiles(folder);
+            } else {
+                JOptionPane.showMessageDialog(this, "Invalid path!");
+            }
+        });
+
+        backButton.addActionListener(e -> {
+            if (currentDirectory != null &&
+                currentDirectory.getParentFile() != null) {
+                showFiles(currentDirectory.getParentFile());
+            }
+        });
+
+        createFolder.addActionListener(e -> createNewFolder());
+
+        createFile.addActionListener(e -> createNewFile());
+
+        deleteButton.addActionListener(e -> deleteFile());
+
+        renameButton.addActionListener(e -> renameFile());
+
+        propertiesButton.addActionListener(e -> showProperties());
+
+        searchButton.addActionListener(e -> searchFiles());
+
+        showFiles(new File(System.getProperty("user.home")));
+
+        setVisible(true);
+    }
+
+    // Display files
+    void showFiles(File directory) {
+
+        currentDirectory = directory;
+        pathField.setText(directory.getAbsolutePath());
+
+        model.setRowCount(0);
+
+        File[] files = directory.listFiles();
+
+        if (files != null) {
+            for (File file : files) {
+
+                String type = file.isDirectory() ? "Folder" : "File";
+
+                String size = file.isDirectory()
+                    ? "-"
+                    : file.length() + " bytes";
+
+                model.addRow(new Object[]{
+                    file.getName(), type, size
+                });
+            }
+        }
+    }
+
+    // Open folder
+    void openSelected() {
+
+        int row = table.getSelectedRow();
+
+        if (row == -1) return;
+
+        String name = model.getValueAt(row, 0).toString();
+
+        File selected = new File(currentDirectory, name);
+
+        if (selected.isDirectory()) {
+            showFiles(selected);
+        } else {
+            try {
+                Desktop.getDesktop().open(selected);
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this,
+                    "Unable to open file!");
+            }
+        }
+    }
+
+    // Create folder
+    void createNewFolder() {
+
+        String name = JOptionPane.showInputDialog(
+            this, "Enter folder name:"
+        );
+
+        if (name != null && !name.trim().isEmpty()) {
+
+            File folder = new File(currentDirectory, name);
+
+            if (folder.mkdir()) {
+                showFiles(currentDirectory);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                    "Folder creation failed!");
+            }
+        }
+    }
+
+    // Create file
+    void createNewFile() {
+
+        String name = JOptionPane.showInputDialog(
+            this, "Enter file name:"
+        );
+
+        if (name != null && !name.trim().isEmpty()) {
+
+            File file = new File(currentDirectory, name);
+
+            try {
+                if (file.createNewFile()) {
+                    showFiles(currentDirectory);
+                } else {
+                    JOptionPane.showMessageDialog(this,
+                        "File already exists!");
+                }
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this,
+                    "File creation failed!");
+            }
+        }
+    }
+
+    // Delete file or folder
+    void deleteFile() {
+
+        int row = table.getSelectedRow();
+
+        if (row == -1) return;
+
+        String name = model.getValueAt(row, 0).toString();
+
+        File file = new File(currentDirectory, name);
+
+        int choice = JOptionPane.showConfirmDialog(
+            this, "Delete " + name + "?"
+        );
+
+        if (choice == JOptionPane.YES_OPTION) {
+
+            if (file.delete()) {
+                showFiles(currentDirectory);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                    "Unable to delete. Folder may not be empty.");
+            }
+        }
+    }
+
+    // Rename file
+    void renameFile() {
+
+        int row = table.getSelectedRow();
+
+        if (row == -1) return;
+
+        String oldName = model.getValueAt(row, 0).toString();
+
+        String newName = JOptionPane.showInputDialog(
+            this, "Enter new name:", oldName
+        );
+
+        if (newName != null && !newName.trim().isEmpty()) {
+
+            File oldFile = new File(currentDirectory, oldName);
+            File newFile = new File(currentDirectory, newName);
+
+            if (oldFile.renameTo(newFile)) {
+                showFiles(currentDirectory);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                    "Rename failed!");
+            }
+        }
+    }
+
+    // File properties
+    void showProperties() {
+
+        int row = table.getSelectedRow();
+
+        if (row == -1) return;
+
+        String name = model.getValueAt(row, 0).toString();
+
+        File file = new File(currentDirectory, name);
+
+        JOptionPane.showMessageDialog(this,
+            "Name: " + file.getName() +
+            "\nPath: " + file.getAbsolutePath() +
+            "\nSize: " + file.length() + " bytes" +
+            "\nType: " +
+            (file.isDirectory() ? "Folder" : "File")
+        );
+    }
+
+    // Search files in current folder
+    void searchFiles() {
+
+        String search = searchField.getText().toLowerCase();
+
+        model.setRowCount(0);
+
+        File[] files = currentDirectory.listFiles();
+
+        if (files != null) {
+            for (File file : files) {
+
+                if (file.getName().toLowerCase().contains(search)) {
+
+                    model.addRow(new Object[]{
+                        file.getName(),
+                        file.isDirectory() ? "Folder" : "File",
+                        file.isDirectory() ? "-" :
+                            file.length() + " bytes"
+                    });
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+
+        SwingUtilities.invokeLater(() -> new FileExplorer());
+    }
+}
